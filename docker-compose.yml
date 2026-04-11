@@ -1,0 +1,16 @@
+services:
+  ytmagnet:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DEPLOYMENT_MODE=server
+      - DOWNLOAD_DIR=/tmp/ytmagnet-downloads
+      - YTDLP_PATH=yt-dlp
+      - FFMPEG_DIR=/usr/bin
+    volumes:
+      - ytmagnet-downloads:/tmp/ytmagnet-downloads
+    restart: unless-stopped
+
+volumes:
+  ytmagnet-downloads:
