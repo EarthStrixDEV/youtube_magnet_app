@@ -30,6 +30,7 @@ export type TranslationKey =
   | "queueItem.startDownload"
   | "queueItem.retryDownload"
   | "queueItem.retry"
+  | "queueItem.saveFile"
   | "queueItem.removeFromQueue"
   | "queueItem.selectCheckbox"
   // Action Bar
@@ -40,6 +41,16 @@ export type TranslationKey =
   | "action.increaseWorkers"
   | "action.downloading"
   | "action.downloadAll"
+  // Settings
+  | "settings.heading"
+  | "settings.saveTo"
+  | "settings.placeholder"
+  | "settings.browse"
+  | "settings.browseTooltip"
+  | "settings.saving"
+  | "settings.saved"
+  | "settings.set"
+  | "settings.setDirWarning"
   // Navbar
   | "nav.activeWorkers"
   | "nav.version"
@@ -55,23 +66,33 @@ export type TranslationKey =
   | "toast.downloadSuccess"
   | "toast.downloadFailed"
   | "toast.downloadError"
+  // Tool Status Banner
+  | "tools.missing"
+  | "tools.ytdlpMissing"
+  | "tools.ytdlpCmd"
+  | "tools.ffmpegMissing"
+  | "tools.ffmpegCmd"
   // User Guide
   | "guide.howToUse"
-  | "guide.step1Title"
-  | "guide.step1Desc"
-  | "guide.step2Title"
-  | "guide.step2Desc"
-  | "guide.step3Title"
-  | "guide.step3Desc"
+  | "guide.local.step1Title"
+  | "guide.local.step1Desc"
+  | "guide.local.step2Title"
+  | "guide.local.step2Desc"
+  | "guide.local.step3Title"
+  | "guide.local.step3Desc"
+  | "guide.local.step4Title"
+  | "guide.local.step4Desc"
+  | "guide.server.step3Title"
+  | "guide.server.step3Desc"
+  | "guide.server.step4Title"
+  | "guide.server.step4Desc"
+  // Download errors
+  | "download.setDirFirst"
   // Placeholders
   | "placeholder.loading"
   | "placeholder.duration"
   | "placeholder.fileSize"
-  // Processing (ffmpeg.wasm client-side pipeline)
-  | "status.processing"
-  | "status.preparingEncoder"
-  | "status.merging"
-  | "status.transcodingMp3"
-  | "status.transcodingWav";
+  // Status (during download lifecycle)
+  | "status.processing";
 
 export type Translations = Record<TranslationKey, string>;
