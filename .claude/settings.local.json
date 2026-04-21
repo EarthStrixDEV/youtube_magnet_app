@@ -4,7 +4,11 @@
       "Bash(npx tsc:*)",
       "Bash(npm run:*)",
       "Bash(grep -E \"\\(warning|Encountered|Import trace|route\\\\.ts|Compiled|config\\\\.ts|\\\\.ts$\\)\")",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(where yt-dlp *)",
+      "Bash(where ffmpeg *)",
+      "Bash(yt-dlp --version)",
+      "Bash(ffmpeg -version)"
     ]
   }
 }

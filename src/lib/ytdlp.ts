@@ -1,8 +1,9 @@
 import { spawn, execFile, execFileSync } from "child_process";
+import fs from "fs";
 import path from "path";
 import type { Format, Quality } from "./types";
 
-// Resolve tool paths: env var → system PATH → legacy hardcoded fallback
+// Resolve tool paths: env var → system PATH → scan known install locations
 let _ytdlpPath: string | null = null;
 let _ffmpegDir: string | null = null;
 
@@ -20,53 +21,105 @@ function which(cmd: string): string | null {
   }
 }
 
-export function getYtdlpPath(): string {
+function firstExisting(candidates: string[]): string | null {
+  for (const c of candidates) {
+    if (!c) continue;
+    try {
+      if (fs.existsSync(c)) return c;
+    } catch {}
+  }
+  return null;
+}
+
+export function getYtdlpPath(): string | null {
   if (_ytdlpPath) return _ytdlpPath;
 
-  // 1. Env var
-  if (process.env.YTDLP_PATH) {
+  // 1. Env var (verified)
+  if (process.env.YTDLP_PATH && fs.existsSync(process.env.YTDLP_PATH)) {
     _ytdlpPath = process.env.YTDLP_PATH;
     return _ytdlpPath;
   }
 
-  // 2. System PATH
+  // 2. System PATH (verified by the shell's `where`/`which`)
   const found = which("yt-dlp");
   if (found) {
     _ytdlpPath = found;
     return _ytdlpPath;
   }
 
-  // 3. Legacy fallback (Windows dev machine)
-  const legacy = path.join(
-    process.env.APPDATA || "",
-    "Python/Python310/Scripts/yt-dlp.exe"
-  );
-  _ytdlpPath = legacy;
-  return _ytdlpPath;
+  // 3. Scan known Python install locations (Windows pip --user installs)
+  const appdata = process.env.APPDATA || "";
+  const localAppData = process.env.LOCALAPPDATA || "";
+  const pythonVersions = ["Python314", "Python313", "Python312", "Python311", "Python310", "Python39"];
+  const candidates: string[] = [];
+  for (const ver of pythonVersions) {
+    if (appdata) {
+      candidates.push(path.join(appdata, "Python", ver, "Scripts", "yt-dlp.exe"));
+    }
+    if (localAppData) {
+      candidates.push(path.join(localAppData, "Programs", "Python", ver, "Scripts", "yt-dlp.exe"));
+    }
+  }
+
+  const scanned = firstExisting(candidates);
+  if (scanned) {
+    _ytdlpPath = scanned;
+    return _ytdlpPath;
+  }
+
+  return null;
 }
 
-export function getFfmpegDir(): string {
+export function getFfmpegDir(): string | null {
   if (_ffmpegDir) return _ffmpegDir;
 
-  // 1. Env var
-  if (process.env.FFMPEG_DIR) {
+  // 1. Env var (verified)
+  if (process.env.FFMPEG_DIR && fs.existsSync(path.join(process.env.FFMPEG_DIR, "ffmpeg.exe"))) {
     _ffmpegDir = process.env.FFMPEG_DIR;
     return _ffmpegDir;
   }
 
-  // 2. System PATH — find ffmpeg binary, return its directory
+  // 2. System PATH
   const found = which("ffmpeg");
   if (found) {
     _ffmpegDir = path.dirname(found);
     return _ffmpegDir;
   }
 
-  // 3. Legacy fallback (Windows WinGet)
-  _ffmpegDir = path.join(
-    process.env.LOCALAPPDATA || "",
-    "Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1-full_build/bin"
-  );
-  return _ffmpegDir;
+  // 3. Scan common Windows install locations
+  const localAppData = process.env.LOCALAPPDATA || "";
+  const programFiles = process.env["ProgramFiles"] || "C:\\Program Files";
+  const candidates: string[] = [];
+  if (localAppData) {
+    // WinGet installs — wildcarded version matches any build
+    const wingetBase = path.join(localAppData, "Microsoft", "WinGet", "Packages");
+    try {
+      if (fs.existsSync(wingetBase)) {
+        for (const entry of fs.readdirSync(wingetBase)) {
+          if (entry.startsWith("Gyan.FFmpeg_")) {
+            const pkgDir = path.join(wingetBase, entry);
+            try {
+              for (const sub of fs.readdirSync(pkgDir)) {
+                const binDir = path.join(pkgDir, sub, "bin");
+                candidates.push(path.join(binDir, "ffmpeg.exe"));
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+  }
+  // Chocolatey + manual installs
+  candidates.push(path.join(programFiles, "ffmpeg", "bin", "ffmpeg.exe"));
+  candidates.push("C:\\ffmpeg\\bin\\ffmpeg.exe");
+
+  const scanned = firstExisting(candidates);
+  if (scanned) {
+    _ffmpegDir = path.dirname(scanned);
+    return _ffmpegDir;
+  }
+
+  return null;
 }
 
 // Map height from quality string
@@ -88,11 +141,12 @@ export function buildYtdlpArgs(
   outputDir: string
 ): string[] {
   const outputTemplate = path.join(outputDir, "%(title)s [%(id)s].%(ext)s");
+  const ffmpegDir = getFfmpegDir();
   const baseArgs = [
     "--newline",
     "--no-colors",
     "--no-playlist",
-    "--ffmpeg-location", getFfmpegDir(),
+    ...(ffmpegDir ? ["--ffmpeg-location", ffmpegDir] : []),
     "-o", outputTemplate,
   ];
 
@@ -215,12 +269,17 @@ export function fetchRealMeta(
 ): Promise<{ title: string; duration: string; thumbnail: string; fileSizeMB: number }> {
   return new Promise((resolve, reject) => {
     const ytdlpPath = getYtdlpPath();
+    if (!ytdlpPath) {
+      reject(new Error("yt-dlp not found. Install with: pip install yt-dlp"));
+      return;
+    }
+    const ffmpegDir = getFfmpegDir();
     const args = [
       "--dump-json",
       "--no-download",
       "--no-warnings",
       "--no-playlist",
-      "--ffmpeg-location", getFfmpegDir(),
+      ...(ffmpegDir ? ["--ffmpeg-location", ffmpegDir] : []),
       url,
     ];
 
@@ -276,6 +335,9 @@ export function spawnDownload(
   outputDir: string
 ) {
   const ytdlpPath = getYtdlpPath();
+  if (!ytdlpPath) {
+    throw new Error("yt-dlp not found. Install with: pip install yt-dlp");
+  }
   const args = buildYtdlpArgs(url, format, quality, outputDir);
 
   const proc = spawn(ytdlpPath, args, {
@@ -292,32 +354,56 @@ export async function checkToolHealth(): Promise<{
   ffmpeg: boolean;
   ytdlpVersion?: string;
   ffmpegVersion?: string;
+  ytdlpPath?: string;
+  ffmpegPath?: string;
 }> {
-  const result = { ytdlp: false, ffmpeg: false, ytdlpVersion: undefined as string | undefined, ffmpegVersion: undefined as string | undefined };
+  const result: {
+    ytdlp: boolean;
+    ffmpeg: boolean;
+    ytdlpVersion?: string;
+    ffmpegVersion?: string;
+    ytdlpPath?: string;
+    ffmpegPath?: string;
+  } = { ytdlp: false, ffmpeg: false };
 
-  try {
-    const ytdlpPath = getYtdlpPath();
-    const ytVer = await new Promise<string>((resolve, reject) => {
-      execFile(ytdlpPath, ["--version"], (err, stdout) => {
-        if (err) reject(err);
-        else resolve(stdout.trim());
+  const ytdlpPath = getYtdlpPath();
+  if (ytdlpPath) {
+    result.ytdlpPath = ytdlpPath;
+    try {
+      const ytVer = await new Promise<string>((resolve, reject) => {
+        execFile(ytdlpPath, ["--version"], (err, stdout) => {
+          if (err) reject(err);
+          else resolve(stdout.trim());
+        });
       });
-    });
-    result.ytdlp = true;
-    result.ytdlpVersion = ytVer;
-  } catch {}
+      result.ytdlp = true;
+      result.ytdlpVersion = ytVer;
+    } catch (err) {
+      console.error("[health] yt-dlp exec failed:", ytdlpPath, err instanceof Error ? err.message : err);
+    }
+  } else {
+    console.error("[health] yt-dlp not found — checked YTDLP_PATH, system PATH, and %APPDATA%\\Python\\Python3xx\\Scripts");
+  }
 
-  try {
-    const ffmpegPath = path.join(getFfmpegDir(), "ffmpeg.exe");
-    const ffVer = await new Promise<string>((resolve, reject) => {
-      execFile(ffmpegPath, ["-version"], (err, stdout) => {
-        if (err) reject(err);
-        else resolve(stdout.split("\n")[0].trim());
+  const ffmpegDir = getFfmpegDir();
+  if (ffmpegDir) {
+    const ffmpegPath = path.join(ffmpegDir, "ffmpeg.exe");
+    result.ffmpegPath = ffmpegPath;
+    try {
+      const ffVer = await new Promise<string>((resolve, reject) => {
+        execFile(ffmpegPath, ["-version"], (err, stdout) => {
+          if (err) reject(err);
+          else resolve(stdout.split("\n")[0].trim());
+        });
       });
-    });
-    result.ffmpeg = true;
-    result.ffmpegVersion = ffVer;
-  } catch {}
+      result.ffmpeg = true;
+      result.ffmpegVersion = ffVer;
+    } catch (err) {
+      console.error("[health] ffmpeg exec failed:", ffmpegPath, err instanceof Error ? err.message : err);
+    }
+  } else {
+    console.error("[health] ffmpeg not found — checked FFMPEG_DIR, system PATH, and WinGet package dir");
+  }
 
   return result;
 }
