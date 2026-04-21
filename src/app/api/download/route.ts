@@ -1,8 +1,19 @@
 import { NextRequest } from "next/server";
-import { spawnDownload, parseProgress, isPostProcessing, parseDestination } from "@/lib/ytdlp";
+import { spawnDownload, parseProgress, isPostProcessing, parseDestination, buildYtdlpArgs, getYtdlpPath } from "@/lib/ytdlp";
 import { getTempDownloadDir, createToken } from "@/lib/download-tokens";
 import { isServerMode } from "@/lib/deployment-mode";
+import { execFile } from "child_process";
 import type { Format, Quality } from "@/lib/types";
+
+function getYtdlpVersion(): Promise<string> {
+  const ytdlpPath = getYtdlpPath();
+  if (!ytdlpPath) return Promise.resolve("unknown");
+  return new Promise((resolve) => {
+    execFile(ytdlpPath, ["--version"], (err, stdout) => {
+      resolve(err ? "unknown" : stdout.trim());
+    });
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +42,12 @@ export async function GET(request: NextRequest) {
   const stream = new ReadableStream({
     start(controller) {
       const proc = spawnDownload(url, format, quality, resolvedOutputDir);
+      const ytdlpArgs = buildYtdlpArgs(url, format, quality, resolvedOutputDir);
       let lastOutputPath = "";
-      let stderrBuffer = "";
+      // Full stderr accumulator — never truncated (bot errors often appear in first lines)
+      let stderrFull = "";
+      // Stdout line buffer for progress parsing (keep last 200 lines for error context)
+      const stdoutLines: string[] = [];
 
       // Track multi-fragment downloads (video + audio → merge)
       // yt-dlp downloads each stream separately, each reporting its own 0-100%.
@@ -97,29 +112,38 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Parse stdout line by line
+      // Parse stdout line by line; keep last 200 lines for error context
       let stdoutBuf = "";
       proc.stdout?.on("data", (chunk: Buffer) => {
-        stdoutBuf += chunk.toString();
+        const text = chunk.toString();
+        stdoutBuf += text;
         const lines = stdoutBuf.split("\n");
         stdoutBuf = lines.pop() || "";
         for (const line of lines) {
-          if (line.trim()) processLine(line);
+          const trimmed = line.trim();
+          if (trimmed) {
+            stdoutLines.push(trimmed);
+            if (stdoutLines.length > 200) stdoutLines.shift();
+            processLine(trimmed);
+          }
         }
       });
 
-      // Capture stderr for error reporting
+      // Capture FULL stderr — never consume lines from this buffer to avoid missing bot errors
+      let stderrLineBuf = "";
       proc.stderr?.on("data", (chunk: Buffer) => {
-        stderrBuffer += chunk.toString();
-        // Also check stderr for progress (yt-dlp sometimes writes there)
-        const lines = stderrBuffer.split("\n");
-        stderrBuffer = lines.pop() || "";
+        const text = chunk.toString();
+        stderrFull += text;
+        // Also parse stderr lines for progress (yt-dlp sometimes writes progress there)
+        stderrLineBuf += text;
+        const lines = stderrLineBuf.split("\n");
+        stderrLineBuf = lines.pop() || "";
         for (const line of lines) {
           if (line.trim()) processLine(line);
         }
       });
 
-      proc.on("close", (code) => {
+      proc.on("close", async (code) => {
         if (processKilled) return;
 
         if (code === 0) {
@@ -132,9 +156,30 @@ export async function GET(request: NextRequest) {
             ...(token && { downloadToken: token }),
           });
         } else {
-          sendEvent("error", {
-            message: stderrBuffer.trim().slice(-500) || `yt-dlp exited with code ${code}`,
+          // Extract the first actionable ERROR line for the client
+          const firstErrorLine = stderrFull
+            .split("\n")
+            .find((l) => l.includes("ERROR:") || l.includes("Sign in") || l.includes("bot"))
+            ?.trim();
+          const clientMessage =
+            firstErrorLine ||
+            stderrFull.trim().slice(0, 300) ||
+            `yt-dlp exited with code ${code}`;
+
+          // Full structured log for Render/server console
+          const ytdlpVersion = await getYtdlpVersion();
+          console.error("[ytdlp] download failed", {
+            exitCode: code,
+            ytdlpVersion,
+            url,
+            format,
+            quality,
+            args: ytdlpArgs,
+            stderr: stderrFull.trim(),
+            stdoutTail: stdoutLines.slice(-200).join("\n"),
           });
+
+          sendEvent("error", { message: clientMessage });
         }
 
         try {

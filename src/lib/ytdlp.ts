@@ -3,6 +3,21 @@ import fs from "fs";
 import path from "path";
 import type { Format, Quality } from "./types";
 
+// Cached yt-dlp version string — queried once at first fetchRealMeta call
+let _ytdlpVersion: string | null = null;
+
+async function getYtdlpVersion(): Promise<string> {
+  if (_ytdlpVersion) return _ytdlpVersion;
+  const ytdlpPath = getYtdlpPath();
+  if (!ytdlpPath) return "unknown";
+  return new Promise((resolve) => {
+    execFile(ytdlpPath, ["--version"], (err, stdout) => {
+      _ytdlpVersion = err ? "unknown" : stdout.trim();
+      resolve(_ytdlpVersion);
+    });
+  });
+}
+
 // Resolve tool paths: env var → system PATH → scan known install locations
 let _ytdlpPath: string | null = null;
 let _ffmpegDir: string | null = null;
@@ -134,6 +149,18 @@ function getBitrateFromQuality(quality: Quality): string {
   return match ? `${match[1]}K` : "192K";
 }
 
+// Bot-detection resilience args — try multiple player clients in order
+// mweb/tv often bypass data-center IP blocks; ios/web_safari as further fallbacks
+const EXTRACTOR_RESILIENCE_ARGS = [
+  "--extractor-args", "youtube:player_client=mweb,tv,ios,web_safari",
+  "--retries", "3",
+  "--fragment-retries", "3",
+  "--no-warnings",
+  ...(process.env.YTDLP_COOKIES_FILE
+    ? ["--cookies", process.env.YTDLP_COOKIES_FILE]
+    : []),
+];
+
 export function buildYtdlpArgs(
   url: string,
   format: Format,
@@ -146,6 +173,7 @@ export function buildYtdlpArgs(
     "--newline",
     "--no-colors",
     "--no-playlist",
+    ...EXTRACTOR_RESILIENCE_ARGS,
     ...(ffmpegDir ? ["--ffmpeg-location", ffmpegDir] : []),
     "-o", outputTemplate,
   ];
@@ -264,28 +292,46 @@ export function parseDestination(line: string): string | null {
 }
 
 // Fetch real metadata via yt-dlp --dump-json
-export function fetchRealMeta(
+export async function fetchRealMeta(
   url: string
 ): Promise<{ title: string; duration: string; thumbnail: string; fileSizeMB: number }> {
-  return new Promise((resolve, reject) => {
-    const ytdlpPath = getYtdlpPath();
-    if (!ytdlpPath) {
-      reject(new Error("yt-dlp not found. Install with: pip install yt-dlp"));
-      return;
-    }
-    const ffmpegDir = getFfmpegDir();
-    const args = [
-      "--dump-json",
-      "--no-download",
-      "--no-warnings",
-      "--no-playlist",
-      ...(ffmpegDir ? ["--ffmpeg-location", ffmpegDir] : []),
-      url,
-    ];
+  const ytdlpPath = getYtdlpPath();
+  if (!ytdlpPath) {
+    throw new Error("yt-dlp not found. Install with: pip install yt-dlp");
+  }
 
+  const ffmpegDir = getFfmpegDir();
+  const args = [
+    "--dump-json",
+    "--no-download",
+    "--no-playlist",
+    ...EXTRACTOR_RESILIENCE_ARGS,
+    ...(ffmpegDir ? ["--ffmpeg-location", ffmpegDir] : []),
+    url,
+  ];
+
+  const ytdlpVersion = await getYtdlpVersion();
+
+  return new Promise((resolve, reject) => {
     execFile(ytdlpPath, args, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
-        reject(new Error(stderr || error.message));
+        // Extract the most actionable error line from stderr
+        const firstErrorLine = stderr
+          .split("\n")
+          .find((l) => l.includes("ERROR:") || l.includes("WARNING:"))
+          ?.trim();
+        const clientMessage = firstErrorLine || stderr.trim() || error.message;
+
+        console.error("[ytdlp] fetchRealMeta failed", {
+          ytdlpVersion,
+          url,
+          args,
+          exitCode: (error as NodeJS.ErrnoException).code ?? "unknown",
+          stderr: stderr.trim(),
+          errorMessage: error.message,
+        });
+
+        reject(new Error(clientMessage));
         return;
       }
 
@@ -321,6 +367,11 @@ export function fetchRealMeta(
           fileSizeMB,
         });
       } catch {
+        console.error("[ytdlp] fetchRealMeta: failed to parse JSON output", {
+          ytdlpVersion,
+          url,
+          stdoutPreview: stdout.slice(0, 500),
+        });
         reject(new Error("Failed to parse yt-dlp JSON output"));
       }
     });
