@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchRealMeta } from "@/lib/ytdlp";
+import { getMetadata } from "@/lib/ytdl";
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get("url");
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const meta = await fetchRealMeta(url);
+    const meta = await getMetadata(url);
     return NextResponse.json(meta);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch metadata";

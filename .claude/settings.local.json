@@ -8,7 +8,28 @@
       "Bash(where yt-dlp *)",
       "Bash(where ffmpeg *)",
       "Bash(yt-dlp --version)",
-      "Bash(ffmpeg -version)"
+      "Bash(ffmpeg -version)",
+      "Bash(npm install *)",
+      "Bash(npm list *)",
+      "Bash(npm uninstall *)",
+      "Bash(python3 -c \"import sys,json; p=json.load\\(sys.stdin\\); print\\('main:', p.get\\('main'\\)\\); print\\('module:', p.get\\('module'\\)\\); exports=p.get\\('exports',{}\\); [print\\(k,'->',v\\) for k,v in exports.items\\(\\) if isinstance\\(v,str\\) or k in ['.','./web','./node']]\")",
+      "Bash(npm run *)",
+      "Bash(echo \"DEV_PID=$!\")",
+      "Bash(curl -s http://localhost:3000/api/health)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(pkill -f \"next-server\")",
+      "Bash(npm view *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(echo \"tsc exit=$?\")",
+      "Bash(echo \"lint exit=$?\")",
+      "Bash(echo \"build exit=$?\")",
+      "Bash(npx next *)",
+      "Bash(tee /tmp/ytm-server.log)",
+      "Bash(curl -s http://localhost:3917/api/health)",
+      "Bash(curl -s -X POST http://localhost:3917/api/get-streams -H \"Content-Type: application/json\" -d '{\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"format\":\"MP4\",\"quality\":\"1080p \\(Full HD\\)\"}')",
+      "Bash(curl -s -X POST http://localhost:3917/api/get-streams -H \"Content-Type: application/json\" -d '{\"url\":\"https://www.youtube.com/watch?v=jNQXAC9IVRw\",\"format\":\"MP4\",\"quality\":\"1080p \\(Full HD\\)\"}')",
+      "Bash(curl -s -X POST http://localhost:3917/api/get-streams -H \"Content-Type: application/json\" -d '{\"url\":\"https://www.youtube.com/watch?v=jNQXAC9IVRw\",\"format\":\"MP4\",\"quality\":\"360p\"}')",
+      "Bash(curl -s -X POST http://localhost:3917/api/get-streams -H \"Content-Type: application/json\" -d '{\"url\":\"https://www.youtube.com/watch?v=jNQXAC9IVRw\",\"format\":\"MP3\",\"quality\":\"192 kbps\"}')"
     ]
   }
 }

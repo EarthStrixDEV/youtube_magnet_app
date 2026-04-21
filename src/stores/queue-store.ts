@@ -20,8 +20,6 @@ interface QueueStore {
   parallelWorkers: number;
   isDownloading: boolean;
   nextIndex: number;
-  downloadDir: string;
-  deploymentMode: "local" | "server";
 
   // Actions
   addUrls: (raw: string) => number;
@@ -30,16 +28,19 @@ interface QueueStore {
   updateItemFormat: (id: string, format: Format) => void;
   updateItemQuality: (id: string, quality: Quality) => void;
   updateItemProgress: (id: string, progress: number) => void;
+  setItemProcessingLabel: (id: string, label: string | undefined) => void;
   markItemStatus: (id: string, status: QueueItem["status"]) => void;
   markItemError: (id: string, error: string) => void;
   setGlobalFormat: (format: Format) => void;
   setGlobalQuality: (quality: Quality) => void;
   setParallelWorkers: (n: number) => void;
   setIsDownloading: (v: boolean) => void;
-  setDownloadDir: (dir: string) => void;
-  setDeploymentMode: (mode: "local" | "server") => void;
   getNextQueued: () => QueueItem | undefined;
   clearCompleted: () => void;
+  clearQueue: () => void;
+  toggleItemSelected: (id: string) => void;
+  selectAllItems: () => void;
+  deselectAllItems: () => void;
 }
 
 export const useQueueStore = create<QueueStore>((set, get) => ({
@@ -49,8 +50,6 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
   parallelWorkers: DEFAULT_WORKERS,
   isDownloading: false,
   nextIndex: 1,
-  downloadDir: "",
-  deploymentMode: "local",
 
   addUrls: (raw: string) => {
     const urls = parseUrls(raw);
@@ -76,6 +75,7 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
         status: "queued" as const,
         progress: 0,
         index: nextIndex + i,
+        selected: true,
       };
     });
 
@@ -149,13 +149,24 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
       ),
     })),
 
-  markItemStatus: (id, status) =>
+  setItemProcessingLabel: (id, label) =>
     set((s) => ({
       items: s.items.map((item) =>
-        item.id === id
-          ? { ...item, status, progress: status === "complete" ? 100 : item.progress }
-          : item
+        item.id === id ? { ...item, processingLabel: label } : item
       ),
+    })),
+
+  markItemStatus: (id, status) =>
+    set((s) => ({
+      items: s.items.map((item) => {
+        if (item.id !== id) return item;
+        // Reset progress to 0 when entering "processing" so the bar restarts
+        // as ffmpeg reports its own progress. Clear any stale processingLabel
+        // on terminal or re-queue transitions.
+        const progress = status === "complete" ? 100 : status === "processing" ? 0 : item.progress;
+        const processingLabel = status === "processing" ? item.processingLabel : undefined;
+        return { ...item, status, progress, processingLabel };
+      }),
     })),
 
   markItemError: (id, error) =>
@@ -179,14 +190,29 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
 
   setIsDownloading: (v) => set({ isDownloading: v }),
 
-  setDownloadDir: (dir) => set({ downloadDir: dir }),
-
-  setDeploymentMode: (mode) => set({ deploymentMode: mode }),
-
   getNextQueued: () => get().items.find((item) => item.status === "queued"),
 
   clearCompleted: () =>
     set((s) => ({
       items: s.items.filter((item) => item.status !== "complete"),
+    })),
+
+  clearQueue: () => set({ items: [], nextIndex: 1, isDownloading: false }),
+
+  toggleItemSelected: (id) =>
+    set((s) => ({
+      items: s.items.map((item) =>
+        item.id === id ? { ...item, selected: !item.selected } : item
+      ),
+    })),
+
+  selectAllItems: () =>
+    set((s) => ({
+      items: s.items.map((item) => ({ ...item, selected: true })),
+    })),
+
+  deselectAllItems: () =>
+    set((s) => ({
+      items: s.items.map((item) => ({ ...item, selected: false })),
     })),
 }));

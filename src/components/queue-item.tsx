@@ -16,12 +16,14 @@ export function QueueItem({ item }: QueueItemProps) {
   const removeItem = useQueueStore((s) => s.removeItem);
   const updateItemFormat = useQueueStore((s) => s.updateItemFormat);
   const updateItemQuality = useQueueStore((s) => s.updateItemQuality);
+  const toggleItemSelected = useQueueStore((s) => s.toggleItemSelected);
   const { startSingle } = useDownload();
   const markItemStatus = useQueueStore((s) => s.markItemStatus);
   const t = useT();
 
   const qualities = QUALITY_MAP[item.format];
   const isActive = item.status === "downloading";
+  const isProcessing = item.status === "processing";
   const isDone = item.status === "complete";
   const isError = item.status === "error";
 
@@ -36,6 +38,17 @@ export function QueueItem({ item }: QueueItemProps) {
       className={`relative border border-line rounded-sm overflow-hidden animate-slide-in theme-transition ${statusClasses}`}
     >
       <div className="flex items-start gap-4 p-4">
+        {/* Selection checkbox */}
+        <div className="flex items-center shrink-0 pt-[26px]">
+          <input
+            type="checkbox"
+            checked={item.selected}
+            onChange={() => toggleItemSelected(item.id)}
+            aria-label={t("queueItem.selectCheckbox")}
+            className="w-4 h-4 rounded-sm border border-line bg-background-warm accent-accent cursor-pointer"
+          />
+        </div>
+
         {/* Thumbnail */}
         <div className="relative shrink-0 w-[120px] h-[68px] rounded-sm overflow-hidden bg-background-warm">
           {item.thumbnail && (
@@ -120,12 +133,12 @@ export function QueueItem({ item }: QueueItemProps) {
                   ? "bg-state-done-chip-bg text-ink-soft"
                   : isError
                     ? "bg-state-danger-bg text-state-danger"
-                    : isActive
+                    : isActive || isProcessing
                       ? "bg-state-downloading-bg text-accent"
                       : "bg-background-warm text-ink-faint"
               }`}
             >
-              {item.status}
+              {isProcessing ? t("status.processing") : item.status}
             </span>
           </div>
         </div>
@@ -162,23 +175,6 @@ export function QueueItem({ item }: QueueItemProps) {
               </svg>
             </button>
           )}
-          {isDone && (item.downloadToken || item.outputPath) && (
-            <a
-              href={
-                item.downloadToken
-                  ? `/api/download-file?token=${encodeURIComponent(item.downloadToken)}`
-                  : `/api/download-file?path=${encodeURIComponent(item.outputPath!)}`
-              }
-              className="w-8 h-8 flex items-center justify-center border border-line rounded-sm text-ink-faint hover:text-accent hover:border-accent transition-all cursor-pointer"
-              aria-label={t("queueItem.saveFile")}
-              title={t("queueItem.saveFile")}
-              download
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-              </svg>
-            </a>
-          )}
           <button
             onClick={() => removeItem(item.id)}
             className="w-8 h-8 flex items-center justify-center border border-line rounded-sm text-ink-faint hover:text-state-danger hover:border-state-danger hover:bg-state-danger-bg transition-all cursor-pointer"
@@ -202,6 +198,15 @@ export function QueueItem({ item }: QueueItemProps) {
         <div className="px-4 pb-3 -mt-1">
           <p className="font-mono text-[10px] text-state-danger truncate" title={item.error}>
             {item.error}
+          </p>
+        </div>
+      )}
+
+      {/* Processing label (e.g. "Merging...", "Transcoding to MP3...") */}
+      {isProcessing && item.processingLabel && (
+        <div className="px-4 pb-3 -mt-1">
+          <p className="font-mono text-[10px] text-accent truncate" title={item.processingLabel}>
+            {item.processingLabel}
           </p>
         </div>
       )}

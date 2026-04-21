@@ -2,8 +2,6 @@
 
 import { Navbar } from "@/components/navbar";
 import { Hero } from "@/components/hero";
-import { ToolStatusBanner } from "@/components/tool-status-banner";
-import { SettingsPanel } from "@/components/settings-panel";
 import { LinkInput } from "@/components/link-input";
 import { GlobalDefaults } from "@/components/global-defaults";
 import { QueueSection } from "@/components/queue-section";
@@ -18,8 +16,6 @@ export default function Home() {
       <Navbar />
       <Hero />
       <UserGuide />
-      <ToolStatusBanner />
-      <SettingsPanel />
       <LinkInput />
       <GlobalDefaults />
       <QueueSection />

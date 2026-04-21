@@ -25,13 +25,17 @@ export const th: Translations = {
   "queue.total": "ทั้งหมด",
   "queue.active": "กำลังทำ",
   "queue.done": "เสร็จ",
+  "queue.clearAll": "ล้างคิว",
+  "queue.selectAll": "เลือกทั้งหมด",
+  "queue.deselectAll": "ยกเลิกทั้งหมด",
+  "queue.startSelected": "เริ่มรายการที่เลือก ({count})",
 
   // Queue Item
   "queueItem.startDownload": "เริ่มดาวน์โหลด",
   "queueItem.retryDownload": "ลองดาวน์โหลดอีกครั้ง",
   "queueItem.retry": "ลองใหม่",
-  "queueItem.saveFile": "บันทึกไฟล์",
   "queueItem.removeFromQueue": "ลบออกจากคิว",
+  "queueItem.selectCheckbox": "เลือกรายการนี้",
 
   // Action Bar
   "action.items": "รายการ",
@@ -42,23 +46,12 @@ export const th: Translations = {
   "action.downloading": "กำลังดาวน์โหลด...",
   "action.downloadAll": "ดาวน์โหลดทั้งหมด",
 
-  // Settings
-  "settings.heading": "00 — ตั้งค่าดาวน์โหลด",
-  "settings.saveTo": "บันทึกที่:",
-  "settings.placeholder": "D:\\Downloads\\YouTube",
-  "settings.browse": "เรียกดู",
-  "settings.browseTooltip": "เลือกโฟลเดอร์",
-  "settings.saving": "...",
-  "settings.saved": "บันทึกแล้ว",
-  "settings.set": "ตั้งค่า",
-  "settings.setDirWarning": "กรุณาตั้งค่าโฟลเดอร์ดาวน์โหลดก่อนเริ่ม",
-
   // Navbar
   "nav.activeWorkers": "ตัวดาวน์โหลด: ",
-  "nav.version": "v1.0",
+  "nav.version": "v3.0",
 
   // Footer
-  "footer.text": "YouTube Magnet v1.0",
+  "footer.text": "YouTube Magnet v3.0",
 
   // Theme Toggle
   "theme.toggle": "สลับธีม",
@@ -72,33 +65,24 @@ export const th: Translations = {
   "toast.downloadFailed": "ดาวน์โหลดล้มเหลว",
   "toast.downloadError": "เกิดข้อผิดพลาด",
 
-  // Tool Status Banner
-  "tools.missing": "ไม่พบเครื่องมือ",
-  "tools.ytdlpMissing": "ยังไม่ได้ติดตั้ง yt-dlp รันคำสั่ง: ",
-  "tools.ytdlpCmd": "pip install yt-dlp",
-  "tools.ffmpegMissing": "ยังไม่ได้ติดตั้ง ffmpeg รันคำสั่ง: ",
-  "tools.ffmpegCmd": "winget install Gyan.FFmpeg",
-
   // User Guide
   "guide.howToUse": "วิธีใช้",
-  "guide.local.step1Title": "วางลิงก์ของคุณ",
-  "guide.local.step1Desc": "วาง URL ของ YouTube หนึ่งหรือหลายรายการลงในช่องข้อความ — บรรทัดละหนึ่ง หรือคั่นด้วยเครื่องหมายจุลภาคหรือเว้นวรรค",
-  "guide.local.step2Title": "เลือกรูปแบบและคุณภาพ",
-  "guide.local.step2Desc": "เลือก MP4, MOV, MP3 หรือ WAV ต่อรายการ — หรือตั้งค่าเริ่มต้นรวม แต่ละรายการในคิวสามารถมีรูปแบบและคุณภาพเป็นของตัวเอง",
-  "guide.local.step3Title": "ตั้งค่าโฟลเดอร์ดาวน์โหลด",
-  "guide.local.step3Desc": "คลิก \"เรียกดู\" เพื่อเลือกที่บันทึกไฟล์ หรือพิมพ์เส้นทางด้วยตนเอง",
-  "guide.local.step4Title": "ดาวน์โหลดทั้งหมดพร้อมกัน",
-  "guide.local.step4Desc": "กด \"ดาวน์โหลดทั้งหมด\" เพื่อเริ่มดาวน์โหลดแบบกลุ่มพร้อมตัวดาวน์โหลดขนาน ปรับจำนวน (1–8) เพื่อควบคุมจำนวนไฟล์ที่ดาวน์โหลดพร้อมกัน",
-  "guide.server.step3Title": "ดาวน์โหลดทั้งหมดพร้อมกัน",
-  "guide.server.step3Desc": "กด \"ดาวน์โหลดทั้งหมด\" เพื่อเริ่มดาวน์โหลดแบบกลุ่มพร้อมตัวดาวน์โหลดขนาน ปรับจำนวน (1–8) เพื่อควบคุมจำนวนไฟล์ที่ดาวน์โหลดพร้อมกัน",
-  "guide.server.step4Title": "บันทึกไฟล์ของคุณ",
-  "guide.server.step4Desc": "เมื่อดาวน์โหลดเสร็จแล้ว คลิกปุ่มบันทึกเพื่อดาวน์โหลดไฟล์ลงอุปกรณ์ของคุณ ตัวจัดการดาวน์โหลด (เช่น IDM) จะรับไฟล์โดยอัตโนมัติ",
-
-  // Download errors
-  "download.setDirFirst": "กรุณาตั้งค่าโฟลเดอร์ดาวน์โหลดก่อน",
+  "guide.step1Title": "วางลิงก์ของคุณ",
+  "guide.step1Desc": "วาง URL ของ YouTube หนึ่งหรือหลายรายการลงในช่องข้อความ — บรรทัดละหนึ่ง หรือคั่นด้วยเครื่องหมายจุลภาคหรือเว้นวรรค",
+  "guide.step2Title": "เลือกรูปแบบและคุณภาพ",
+  "guide.step2Desc": "เลือก MP4, MOV, MP3 หรือ WAV ต่อรายการ — หรือตั้งค่าเริ่มต้นรวม แต่ละรายการในคิวสามารถมีรูปแบบและคุณภาพเป็นของตัวเอง",
+  "guide.step3Title": "ดาวน์โหลดทั้งหมดพร้อมกัน",
+  "guide.step3Desc": "กด \"ดาวน์โหลดทั้งหมด\" เพื่อเริ่มดาวน์โหลดแบบกลุ่มพร้อมตัวดาวน์โหลดขนาน ปรับจำนวน (1–8) ไฟล์จะถูกบันทึกตรงในโฟลเดอร์ดาวน์โหลดของเบราว์เซอร์",
 
   // Placeholders
   "placeholder.loading": "กำลังโหลด...",
   "placeholder.duration": "--:--",
   "placeholder.fileSize": "...",
+
+  // Processing (ffmpeg.wasm client-side pipeline)
+  "status.processing": "กำลังประมวลผล",
+  "status.preparingEncoder": "กำลังเตรียมตัวเข้ารหัส...",
+  "status.merging": "กำลังรวมวิดีโอ + เสียง...",
+  "status.transcodingMp3": "กำลังแปลงเป็น MP3...",
+  "status.transcodingWav": "กำลังแปลงเป็น WAV...",
 };
