@@ -8,16 +8,20 @@
 
 // User-Agent strings per YouTube client type.
 // MWEB URLs are signed for mobile Safari; sending a desktop UA causes 403.
-// WEB URLs expect a desktop Chrome UA. Defaulting to MWEB UA is the safest
-// fallback because MWEB CDN endpoints tolerate mismatches less often than WEB.
+// WEB URLs expect a desktop Chrome UA.
+// ANDROID URLs are signed for the YouTube Android app; no Origin/Referer header is expected.
+// Defaulting to MWEB UA is the safest fallback because MWEB CDN endpoints tolerate
+// mismatches less often than WEB.
 const USER_AGENTS: Record<string, string> = {
   mweb: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
   web: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  android: "com.google.android.youtube/19.09.37 (Linux; U; Android 14) gzip",
 };
 
 // Origin and Referer per client type.
 // YouTube CDN validates these for adaptive (rqh=1) streams.
 // MWEB expects m.youtube.com; WEB expects www.youtube.com.
+// ANDROID app does not send Origin or Referer — omit them for that client.
 const ORIGINS: Record<string, string> = {
   mweb: "https://m.youtube.com",
   web: "https://www.youtube.com",
@@ -67,12 +71,14 @@ export async function GET(request: Request): Promise<Response> {
   const targetEncoded = searchParams.get("u");
   const fileName = searchParams.get("fn") ?? "";
   // "ua" param carries the YouTube client type that generated this URL.
-  // Values: "mweb" (adaptive, MWEB client) | "web" (combined, WEB client).
-  // Defaults to "mweb" — the stricter of the two, safe to over-apply.
+  // Values: "mweb" (adaptive, MWEB client) | "web" (combined, WEB client) | "android" (ANDROID fallback).
+  // Defaults to "mweb" — the strictest of the three, safe to over-apply for unknown values.
   const uaKey = (searchParams.get("ua") ?? "mweb").toLowerCase();
   const userAgent = USER_AGENTS[uaKey] ?? USER_AGENTS["mweb"]!;
-  const origin = ORIGINS[uaKey] ?? ORIGINS["mweb"]!;
-  const referer = REFERERS[uaKey] ?? REFERERS["mweb"]!;
+  // ANDROID client does not send Origin or Referer (native app behaviour).
+  const isAndroid = uaKey === "android";
+  const origin = isAndroid ? null : (ORIGINS[uaKey] ?? ORIGINS["mweb"]!);
+  const referer = isAndroid ? null : (REFERERS[uaKey] ?? REFERERS["mweb"]!);
 
   if (!targetEncoded) {
     return Response.json(
@@ -105,18 +111,25 @@ export async function GET(request: Request): Promise<Response> {
 
   // Build upstream request headers.
   // User-Agent, Origin, and Referer must match the YouTube client that signed
-  // the URL — MWEB URLs are tied to mobile Safari; WEB to desktop Chrome.
+  // the URL — MWEB URLs are tied to mobile Safari; WEB to desktop Chrome;
+  // ANDROID to the YouTube app (no Origin/Referer).
   // Referer is required by YouTube CDN for adaptive streams with rqh=1: the
   // CDN validates that Referer matches the expected origin for the client type.
   // Accept-Encoding: identity prevents the Node runtime from auto-decompressing
   // the response body, which would corrupt the raw media bytes we pipe through.
-  const upstreamHeaders: HeadersInit = {
+  const upstreamHeaders: Record<string, string> = {
     "user-agent": userAgent,
-    "origin": origin,
-    "referer": referer,
     "accept": "*/*",
     "accept-encoding": "identity",
   };
+  // Only set Origin/Referer for browser-based clients (MWEB, WEB).
+  // The Android app UA does not send these headers.
+  if (origin !== null) {
+    upstreamHeaders["origin"] = origin;
+  }
+  if (referer !== null) {
+    upstreamHeaders["referer"] = referer;
+  }
 
   // Forward Range header from client → upstream so partial-content (206) works.
   const rangeHeader = request.headers.get("range");

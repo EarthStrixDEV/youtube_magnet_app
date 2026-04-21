@@ -40,11 +40,12 @@ const AUDIO_QUALITY_STRINGS = ["320 kbps", "256 kbps", "192 kbps", "128 kbps"];
  * @param rawUrl  - Deciphered googlevideo.com URL
  * @param fileName - Suggested download filename
  * @param client  - YouTube client that generated the URL: "mweb" for adaptive
- *                  streams (merge/transcode), "web" for combined streams (single).
+ *                  streams (merge/transcode), "web" for combined streams (single),
+ *                  "android" for ANDROID client fallback adaptive streams.
  *                  The proxy uses this to set the matching User-Agent so the CDN
  *                  does not reject the request with 403.
  */
-function toProxyUrl(rawUrl: string, fileName: string, client: "mweb" | "web"): string {
+function toProxyUrl(rawUrl: string, fileName: string, client: "mweb" | "web" | "android"): string {
   return `/api/proxy?u=${encodeURIComponent(rawUrl)}&fn=${encodeURIComponent(fileName)}&ua=${client}`;
 }
 
@@ -91,6 +92,21 @@ async function createInnertubeAdaptive(): Promise<Innertube> {
   return Innertube.create({
     generate_session_locally: true,
     client_type: ClientType.MWEB,
+  });
+}
+
+/**
+ * Create an Innertube instance using the ANDROID client.
+ *
+ * Fallback for when MWEB adaptive_formats are empty or SABR-only (which can
+ * happen for data-center IPs on Vercel). The Android app client is less likely
+ * to be gated behind SABR treatment and still returns per-format direct URLs.
+ */
+async function createInnertubeAndroid(): Promise<Innertube> {
+  ensureEvaluator();
+  return Innertube.create({
+    generate_session_locally: true,
+    client_type: ClientType.ANDROID,
   });
 }
 
@@ -252,12 +268,37 @@ export async function getStreamUrl(
     createInnertubeAdaptive(),
   ]);
 
-  const [info, infoAdaptive] = await Promise.all([
+  const [webInfo, mwebInfo] = await Promise.all([
     yt.getInfo(videoId),
     ytAdaptive.getBasicInfo(videoId),
   ]);
 
-  const basic = info.basic_info;
+  // --- Production logging: stream availability diagnostic ---
+  const mwebAdaptiveRaw = mwebInfo.streaming_data?.adaptive_formats ?? [];
+  console.info("[ytdl] stream availability", {
+    videoId,
+    requestedFormat: format,
+    requestedQuality: quality,
+    requestedHeight: parseHeight(quality),
+    webCombinedCount: webInfo.streaming_data?.formats?.length ?? 0,
+    webAdaptiveCount: webInfo.streaming_data?.adaptive_formats?.length ?? 0,
+    mwebCombinedCount: mwebInfo.streaming_data?.formats?.length ?? 0,
+    mwebAdaptiveCount: mwebAdaptiveRaw.length,
+    mwebVideoOnlyCount: mwebAdaptiveRaw.filter(f => f.has_video && !f.has_audio).length,
+    mwebAudioOnlyCount: mwebAdaptiveRaw.filter(f => !f.has_video && f.has_audio).length,
+    sampleAdaptive: mwebAdaptiveRaw.slice(0, 3).map(f => ({
+      itag: f.itag,
+      mime: f.mime_type?.substring(0, 30),
+      height: f.height,
+      hasUrl: !!f.url,
+      hasCipher: !!f.cipher,
+      hasSigCipher: !!f.signature_cipher,
+      hasSabrUrl: !!(f as { server_abr_streaming_url?: unknown }).server_abr_streaming_url,
+      audioBitrate: (f as { audio_bitrate?: unknown }).audio_bitrate,
+    })),
+  });
+
+  const basic = webInfo.basic_info;
 
   const title = basic.title ?? "Unknown Title";
   const thumbnails = basic.thumbnail ?? [];
@@ -268,14 +309,51 @@ export async function getStreamUrl(
   const safeTitle = sanitizeFileName(title);
 
   // combinedAll — from WEB client (combined streams still have direct URLs)
-  // adaptiveAll — from MWEB client (adaptive streams need MWEB to get URLs)
-  const adaptiveAll = infoAdaptive.streaming_data?.adaptive_formats ?? [];
-  const combinedAll = info.streaming_data?.formats ?? [];
+  // adaptiveAll — starts as MWEB; may be replaced by ANDROID if MWEB is empty/SABR-only
+  const combinedAll = webInfo.streaming_data?.formats ?? [];
 
-  if (adaptiveAll.length > 0 && !adaptiveAll[0].url && !adaptiveAll[0].signature_cipher) {
+  // --- ANDROID fallback: if MWEB has no video-only adaptive streams, try ANDROID ---
+  const mwebHasVideoOnly = mwebAdaptiveRaw.some(f => f.has_video && !f.has_audio);
+
+  let adaptiveAll = mwebAdaptiveRaw;
+  let adaptivePlayer = ytAdaptive.session.player;
+  let adaptiveSource: "mweb" | "android" = "mweb";
+
+  if (!mwebHasVideoOnly && !wantsAudioOnly) {
+    console.warn("[ytdl] MWEB has no video-only streams; falling back to ANDROID client");
+    try {
+      const ytAndroid = await createInnertubeAndroid();
+      const androidInfo = await ytAndroid.getBasicInfo(videoId);
+      const androidAdaptive = androidInfo.streaming_data?.adaptive_formats ?? [];
+      const androidHasVideoOnly = androidAdaptive.some(f => f.has_video && !f.has_audio);
+
+      console.info("[ytdl] ANDROID adaptive availability", {
+        videoId,
+        androidAdaptiveCount: androidAdaptive.length,
+        androidVideoOnlyCount: androidAdaptive.filter(f => f.has_video && !f.has_audio).length,
+        androidAudioOnlyCount: androidAdaptive.filter(f => !f.has_video && f.has_audio).length,
+      });
+
+      if (androidHasVideoOnly) {
+        adaptiveAll = androidAdaptive;
+        adaptivePlayer = ytAndroid.session.player;
+        adaptiveSource = "android";
+        console.info("[ytdl] ANDROID fallback active — using ANDROID adaptive streams");
+      } else {
+        console.warn("[ytdl] ANDROID also has no video-only streams — both clients exhausted");
+        // Keep MWEB adaptive so the error path below can report real heights.
+      }
+    } catch (androidErr) {
+      const androidErrMsg = androidErr instanceof Error ? androidErr.message : String(androidErr);
+      console.error("[ytdl] ANDROID client creation/fetch failed", { error: androidErrMsg });
+      // Non-fatal — fall through with empty MWEB adaptive; error path will handle it.
+    }
+  }
+
+  if (mwebAdaptiveRaw.length > 0 && !mwebAdaptiveRaw[0].url && !mwebAdaptiveRaw[0].signature_cipher) {
     console.error(
       "[ytdl] WARNING: MWEB adaptive_formats still have no URL — YouTube may have extended SABR to MWEB.",
-      { itag: adaptiveAll[0].itag, has_url: false }
+      { itag: mwebAdaptiveRaw[0].itag, has_url: false }
     );
   }
 
@@ -286,14 +364,14 @@ export async function getStreamUrl(
     try {
       // Use MWEB adaptive formats for audio-only; WEB's adaptive_formats lack URLs (SABR).
       const audioFormat =
-        adaptiveAll
+        mwebAdaptiveRaw
           .filter((f) => !f.has_video && f.has_audio)
           .sort((a, b) => {
             const aM4a = (a.mime_type ?? "").includes("mp4") ? 1 : 0;
             const bM4a = (b.mime_type ?? "").includes("mp4") ? 1 : 0;
             if (aM4a !== bM4a) return bM4a - aM4a;
             return (b.bitrate ?? 0) - (a.bitrate ?? 0);
-          })[0] ?? infoAdaptive.chooseFormat({ type: "audio", quality: "best" });
+          })[0] ?? null;
 
       if (!audioFormat) {
         return { ok: false, code: "no_stream", message: "No audio stream found." };
@@ -312,7 +390,7 @@ export async function getStreamUrl(
           itag: audioFormat.itag,
           mime: audioFormat.mime_type,
         });
-        return { ok: false, code: "no_stream", message: "No audio stream found." };
+        return { ok: false, code: "no_stream", message: "No audio stream found. Could not decipher URL." };
       }
       const audioMime = audioFormat.mime_type ?? "audio/mp4";
       const audioProxyFileName = `${safeTitle}.m4a`;
@@ -468,11 +546,27 @@ export async function getStreamUrl(
 
     const chosenVideo = videoCandidates[0];
     if (!chosenVideo) {
-      return {
-        ok: false,
-        code: "no_stream",
-        message: "No video-only stream available for merge.",
-      };
+      // Compute the max height actually available across all video-only streams
+      // (regardless of the requested height filter) so the error is actionable.
+      const allVideoOnlyHeights = adaptiveAll
+        .filter(f => f.has_video && !f.has_audio)
+        .map(f => f.height)
+        .filter((h): h is number => typeof h === "number" && h > 0)
+        .sort((a, b) => b - a);
+
+      console.warn("[ytdl] merge candidates none", {
+        videoId,
+        requestedHeight,
+        adaptiveSource,
+        allVideoOnlyHeights,
+      });
+
+      const maxAvailable = allVideoOnlyHeights[0];
+      const message = maxAvailable
+        ? `This video's max video-only quality is ${maxAvailable}p. Try selecting ${maxAvailable}p or lower.`
+        : `No video-only stream available for merge (client: ${adaptiveSource}). The video may not have adaptive streams.`;
+
+      return { ok: false, code: "no_stream", message };
     }
 
     // Pick best audio-only (prefer m4a/mp4 for stream-copy compatibility).
@@ -495,31 +589,32 @@ export async function getStreamUrl(
     }
 
     console.info("[ytdl] merge decipher:", {
+      adaptiveSource,
       video: { itag: chosenVideo.itag, height: chosenVideo.height, mime: chosenVideo.mime_type, has_url: !!chosenVideo.url, has_sig: !!chosenVideo.signature_cipher },
       audio: { itag: chosenAudio.itag, mime: chosenAudio.mime_type, has_url: !!chosenAudio.url, has_sig: !!chosenAudio.signature_cipher },
     });
 
-    const videoRaw = await chosenVideo.decipher(ytAdaptive.session.player);
+    const videoRaw = await chosenVideo.decipher(adaptivePlayer);
     if (!videoRaw) {
       console.error("[ytdl] video-only decipher returned empty", {
-        itag: chosenVideo.itag, height: chosenVideo.height, mime: chosenVideo.mime_type,
+        itag: chosenVideo.itag, height: chosenVideo.height, mime: chosenVideo.mime_type, adaptiveSource,
       });
       return {
         ok: false,
         code: "no_stream",
-        message: `Could not decipher video-only stream (itag ${chosenVideo.itag}, ${chosenVideo.height}p).`,
+        message: `Could not decipher video-only stream (itag ${chosenVideo.itag}, ${chosenVideo.height}p, client: ${adaptiveSource}).`,
       };
     }
 
-    const audioRaw = await chosenAudio.decipher(ytAdaptive.session.player);
+    const audioRaw = await chosenAudio.decipher(adaptivePlayer);
     if (!audioRaw) {
       console.error("[ytdl] audio-only decipher returned empty", {
-        itag: chosenAudio.itag, mime: chosenAudio.mime_type,
+        itag: chosenAudio.itag, mime: chosenAudio.mime_type, adaptiveSource,
       });
       return {
         ok: false,
         code: "no_stream",
-        message: `Could not decipher audio-only stream (itag ${chosenAudio.itag}).`,
+        message: `Could not decipher audio-only stream (itag ${chosenAudio.itag}, client: ${adaptiveSource}).`,
       };
     }
 
@@ -537,10 +632,10 @@ export async function getStreamUrl(
     return {
       ok: true,
       kind: "merge",
-      // Both video-only and audio-only adaptive streams come from the MWEB client.
-      videoUrl: toProxyUrl(videoRaw, videoProxyFn, "mweb"),
+      // Proxy UA must match the client that signed the URLs (mweb or android).
+      videoUrl: toProxyUrl(videoRaw, videoProxyFn, adaptiveSource),
       videoMime,
-      audioUrl: toProxyUrl(audioRaw, audioProxyFn, "mweb"),
+      audioUrl: toProxyUrl(audioRaw, audioProxyFn, adaptiveSource),
       audioMime,
       fileName,
       mimeType: wantMov ? "video/quicktime" : "video/mp4",
