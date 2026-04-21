@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { spawnDownload, parseProgress, isPostProcessing, parseDestination } from "@/lib/ytdlp";
-import { getTempDownloadDir, createToken, isServerMode } from "@/lib/download-tokens";
+import { getTempDownloadDir, createToken } from "@/lib/download-tokens";
+import { isServerMode } from "@/lib/deployment-mode";
 import type { Format, Quality } from "@/lib/types";
 
 export const dynamic = "force-dynamic";

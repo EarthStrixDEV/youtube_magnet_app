@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useQueueStore } from "@/stores/queue-store";
 import { useDownload } from "@/hooks/use-download";
 import { useT } from "@/hooks/use-t";
@@ -37,12 +38,16 @@ export function QueueItem({ item }: QueueItemProps) {
       <div className="flex items-start gap-4 p-4">
         {/* Thumbnail */}
         <div className="relative shrink-0 w-[120px] h-[68px] rounded-sm overflow-hidden bg-background-warm">
-          <img
-            src={item.thumbnail}
-            alt={item.title}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
+          {item.thumbnail && (
+            <Image
+              src={item.thumbnail}
+              alt={item.title}
+              fill
+              sizes="120px"
+              className="object-cover"
+              loading="lazy"
+            />
+          )}
           {/* Index badge */}
           <span className="absolute top-1 left-1 bg-black/70 text-white font-mono text-[9px] px-1.5 py-0.5 rounded-sm">
             #{item.index}

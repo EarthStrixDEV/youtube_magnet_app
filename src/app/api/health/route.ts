@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkToolHealth } from "@/lib/ytdlp";
-import { isServerMode } from "@/lib/download-tokens";
+import { isServerMode } from "@/lib/deployment-mode";
 
 export async function GET() {
   const health = await checkToolHealth();

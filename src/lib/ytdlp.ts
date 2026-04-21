@@ -224,13 +224,7 @@ export function fetchRealMeta(
       url,
     ];
 
-    let stdout = "";
-    let stderr = "";
-
-    const proc = execFile(ytdlpPath, args, { maxBuffer: 10 * 1024 * 1024 }, (error, out, err) => {
-      stdout = out;
-      stderr = err;
-
+    execFile(ytdlpPath, args, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(stderr || error.message));
         return;

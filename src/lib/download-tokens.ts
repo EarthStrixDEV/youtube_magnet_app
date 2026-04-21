@@ -1,68 +1,60 @@
 import fs from "fs";
 import path from "path";
-import os from "os";
+import { createToken as storeCreateToken, listExpired } from "./token-store";
 
-export interface DownloadToken {
-  filePath: string;
-  fileName: string;
-  createdAt: number;
+export { isServerMode } from "./deployment-mode";
+export { resolveToken } from "./token-store";
+export type { DownloadToken } from "./token-store";
+
+function getSystemTmpDir(): string {
+  return (
+    process.env.TMPDIR ||
+    process.env.TEMP ||
+    process.env.TMP ||
+    (process.platform === "win32" ? "C:\\Windows\\Temp" : "/tmp")
+  );
 }
 
-// In-memory token map with expiry (1 hour)
-const TOKEN_EXPIRY_MS = 60 * 60 * 1000;
-const tokens = new Map<string, DownloadToken>();
-
-// Server-side temp directory for downloads
-const TEMP_DIR = process.env.DOWNLOAD_DIR || path.join(os.tmpdir(), "ytmagnet-downloads");
+let _tempDir: string | null = null;
+function resolveTempDir(): string {
+  if (_tempDir) return _tempDir;
+  _tempDir =
+    process.env.DOWNLOAD_DIR ||
+    path.join(getSystemTmpDir(), "ytmagnet-downloads");
+  return _tempDir;
+}
 
 export function getTempDownloadDir(): string {
-  if (!fs.existsSync(TEMP_DIR)) {
-    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  const dir = resolveTempDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
-  return TEMP_DIR;
+  return dir;
 }
 
 export function createToken(filePath: string): string {
-  const token = crypto.randomUUID();
-  const fileName = path.basename(filePath);
-  tokens.set(token, { filePath, fileName, createdAt: Date.now() });
+  const token = storeCreateToken(filePath);
+  ensureCleanupScheduled();
   return token;
 }
 
-export function resolveToken(token: string): DownloadToken | null {
-  const entry = tokens.get(token);
-  if (!entry) return null;
-
-  // Check expiry
-  if (Date.now() - entry.createdAt > TOKEN_EXPIRY_MS) {
-    tokens.delete(token);
-    return null;
-  }
-
-  return entry;
-}
-
-export function isServerMode(): boolean {
-  return process.env.DEPLOYMENT_MODE === "server";
-}
-
-// Cleanup expired tokens and their files
 export function cleanupExpired(): number {
+  const expired = listExpired();
   let cleaned = 0;
-  const now = Date.now();
-  for (const [token, entry] of tokens) {
-    if (now - entry.createdAt > TOKEN_EXPIRY_MS) {
-      tokens.delete(token);
-      try {
-        if (fs.existsSync(entry.filePath)) {
-          fs.unlinkSync(entry.filePath);
-          cleaned++;
-        }
-      } catch {}
-    }
+  for (const entry of expired) {
+    try {
+      if (fs.existsSync(entry.filePath)) {
+        fs.unlinkSync(entry.filePath);
+        cleaned++;
+      }
+    } catch {}
   }
   return cleaned;
 }
 
-// Run cleanup every 15 minutes
-setInterval(cleanupExpired, 15 * 60 * 1000);
+let _cleanupTimer: NodeJS.Timeout | null = null;
+function ensureCleanupScheduled(): void {
+  if (_cleanupTimer) return;
+  _cleanupTimer = setInterval(cleanupExpired, 15 * 60 * 1000);
+  _cleanupTimer.unref?.();
+}

@@ -1,13 +1,16 @@
 import { NextRequest } from "next/server";
 import fs from "fs";
 import path from "path";
-import { resolveToken, isServerMode } from "@/lib/download-tokens";
+import { resolveToken } from "@/lib/token-store";
+import { isServerMode } from "@/lib/deployment-mode";
 
-const SETTINGS_PATH = path.join(process.cwd(), ".ytmagnet-settings.json");
+function getSettingsPath(): string {
+  return path.join(/*turbopackIgnore: true*/ process.cwd(), ".ytmagnet-settings.json");
+}
 
 function getDownloadDir(): string {
   try {
-    const raw = fs.readFileSync(SETTINGS_PATH, "utf-8");
+    const raw = fs.readFileSync(getSettingsPath(), "utf-8");
     return JSON.parse(raw).downloadDir || "";
   } catch {
     return "";
@@ -46,8 +49,8 @@ export async function GET(request: NextRequest) {
   } else if (filePath && !isServerMode()) {
     // Path-based download (local mode only)
     const downloadDir = getDownloadDir();
-    const normalizedFile = path.resolve(filePath);
-    const normalizedDir = path.resolve(downloadDir);
+    const normalizedFile = path.resolve(/*turbopackIgnore: true*/ filePath);
+    const normalizedDir = path.resolve(/*turbopackIgnore: true*/ downloadDir);
 
     if (!downloadDir || !normalizedFile.startsWith(normalizedDir)) {
       return new Response(JSON.stringify({ error: "Access denied" }), {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useQueueStore } from "@/stores/queue-store";
 import { useToastStore } from "@/stores/toast-store";
 import { useLocaleStore } from "@/stores/locale-store";
@@ -24,27 +24,7 @@ function parseSSE(text: string): Array<{ event: string; data: string }> {
 
 export function useDownload() {
   const activeWorkers = useRef<Map<string, AbortController>>(new Map());
-
-  const fillWorkerSlots = useCallback(() => {
-    const store = useQueueStore.getState();
-    const { parallelWorkers } = store;
-    const currentActive = activeWorkers.current.size;
-    const slotsAvailable = parallelWorkers - currentActive;
-
-    if (slotsAvailable <= 0) return;
-
-    const queued = store.items.filter(
-      (i) => i.status === "queued" && !activeWorkers.current.has(i.id)
-    );
-    const toStart = queued.slice(0, slotsAvailable);
-
-    if (toStart.length === 0 && currentActive === 0) {
-      store.setIsDownloading(false);
-      return;
-    }
-
-    toStart.forEach((item) => downloadItem(item.id));
-  }, []);
+  const fillWorkerSlotsRef = useRef<() => void>(() => {});
 
   const downloadItem = useCallback((itemId: string) => {
     const store = useQueueStore.getState();
@@ -123,7 +103,7 @@ export function useDownload() {
                       type: "success",
                     });
                     activeWorkers.current.delete(itemId);
-                    fillWorkerSlots();
+                    fillWorkerSlotsRef.current();
                     break;
                   }
 
@@ -137,7 +117,7 @@ export function useDownload() {
                       type: "error",
                     });
                     activeWorkers.current.delete(itemId);
-                    fillWorkerSlots();
+                    fillWorkerSlotsRef.current();
                     break;
                   }
                 }
@@ -153,8 +133,33 @@ export function useDownload() {
         const s = useQueueStore.getState();
         s.markItemError(itemId, err.message || "Download failed");
         activeWorkers.current.delete(itemId);
-        fillWorkerSlots();
+        fillWorkerSlotsRef.current();
       });
+  }, []);
+
+  const fillWorkerSlots = useCallback(() => {
+    const store = useQueueStore.getState();
+    const { parallelWorkers } = store;
+    const currentActive = activeWorkers.current.size;
+    const slotsAvailable = parallelWorkers - currentActive;
+
+    if (slotsAvailable <= 0) return;
+
+    const queued = store.items.filter(
+      (i) => i.status === "queued" && !activeWorkers.current.has(i.id)
+    );
+    const toStart = queued.slice(0, slotsAvailable);
+
+    if (toStart.length === 0 && currentActive === 0) {
+      store.setIsDownloading(false);
+      return;
+    }
+
+    toStart.forEach((item) => downloadItem(item.id));
+  }, [downloadItem]);
+
+  useEffect(() => {
+    fillWorkerSlotsRef.current = fillWorkerSlots;
   }, [fillWorkerSlots]);
 
   const startAll = useCallback(() => {
